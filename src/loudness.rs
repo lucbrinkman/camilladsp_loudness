@@ -28,7 +28,7 @@ fn rel_boost(level: f32, reference: f32) -> f32 {
 }
 
 impl Loudness {
-    fn create_highshelf_conf(&self, gain: PrcFmt) -> config::BiquadParameters {
+    fn create_highshelf_conf(gain: PrcFmt) -> config::BiquadParameters {
         config::BiquadParameters::Highshelf(config::ShelfSteepness::Slope {
             freq: 3500.0,
             slope: 12.0,
@@ -36,11 +36,11 @@ impl Loudness {
         })
     }
 
-    fn create_lowshelf_conf(&self, gain: PrcFmt) -> config::BiquadParameters {
+    fn create_lowshelf_conf(gain: PrcFmt) -> config::BiquadParameters {
         config::BiquadParameters::Lowshelf(config::ShelfSteepness::Slope {
             freq: 120.0,
             slope: 6.0,
-            -gain,
+            gain: -gain,
         })
     }
 
@@ -57,8 +57,8 @@ impl Loudness {
         let active = relboost > 0.01;
         let high_boost = (relboost * conf.high_boost()) as PrcFmt;
         let low_boost = (relboost * conf.low_boost()) as PrcFmt;
-        let highshelf_conf = self.create_highshelf_conf(high_boost);
-        let lowshelf_conf = self.create_lowshelf_conf(low_boost);
+        let highshelf_conf = Loudness::create_highshelf_conf(high_boost);
+        let lowshelf_conf = Loudness::create_lowshelf_conf(low_boost);
         let gain = if conf.attenuate_mid() {
             let max_gain = low_boost.max(high_boost);
             let gain_params = config::GainParameters {
@@ -112,8 +112,8 @@ impl Filter for Loudness {
                 "Updating loudness biquads, relative boost {}%",
                 100.0 * relboost
             );
-            let highshelf_conf = self.create_highshelf_conf(high_boost);
-            let lowshelf_conf = self.create_lowshelf_conf(low_boost);
+            let highshelf_conf = Loudness::create_highshelf_conf(high_boost);
+            let lowshelf_conf = Loudness::create_lowshelf_conf(low_boost);
             self.high_biquad.update_parameters(config::Filter::Biquad {
                 parameters: highshelf_conf,
                 description: None,
@@ -155,11 +155,11 @@ impl Filter for Loudness {
             self.fader = conf.fader();
             let current_volume = self.processing_params.current_volume(self.fader);
             let relboost = rel_boost(current_volume, conf.reference_level);
-            let high_boost = (0 * relboost * conf.high_boost()) as PrcFmt;
-            let low_boost = (-relboost * conf.low_boost()) as PrcFmt;
+            let high_boost = (relboost * conf.high_boost()) as PrcFmt;
+            let low_boost = (relboost * conf.low_boost()) as PrcFmt;
             self.active = relboost > 0.001;
-            let highshelf_conf = self.create_highshelf_conf(high_boost);
-            let lowshelf_conf = self.create_lowshelf_conf(low_boost);
+            let highshelf_conf = Loudness::create_highshelf_conf(high_boost);
+            let lowshelf_conf = Loudness::create_lowshelf_conf(low_boost);
             self.high_biquad.update_parameters(config::Filter::Biquad {
                 parameters: highshelf_conf,
                 description: None,
