@@ -8,7 +8,7 @@ use crate::PrcFmt;
 use crate::ProcessingParameters;
 use crate::Res;
 
-const LOW_SHELF_GAIN_FACTOR: f32 = 0.52;
+const LOW_SHELF_GAIN_FACTOR: f64 = 0.52;
 
 pub struct Loudness {
     pub name: String,
@@ -26,7 +26,7 @@ pub struct Loudness {
 }
 
 fn calc_loudness_gain(level: f32, reference: f32) -> f32 {
-    let loudness_gain = (reference - level); // In this new system we just want to know the absolute dB change to correct for.
+    let loudness_gain = reference - level; // In this new system we just want to know the absolute dB change to correct for.
     loudness_gain.clamp(0.0, 40.0) // Clamped this to max 40dB for safety. This would lead to a max bass boost 
 }
 
@@ -64,7 +64,7 @@ impl Loudness {
         info!("Create loudness filter");
         let fader = conf.fader();
         let current_volume = processing_params.target_volume(fader);
-        let loudness_gain = calc_loudness_gain(current_volume, conf.reference_level);
+        let loudness_gain = calc_loudness_gain(current_volume, conf.reference_level) as PrcFmt;
         let active = loudness_gain > 0.01;
         // let high_boost = (loudness_gain * conf.high_boost()) as PrcFmt;
         // let low_boost = (loudness_gain * conf.low_boost()) as PrcFmt;
@@ -120,7 +120,7 @@ impl Filter for Loudness {
         // Volume setting changed
         if (shared_vol - self.current_volume as f32).abs() > 0.01 {
             self.current_volume = shared_vol as PrcFmt;
-            let loudness_gain = calc_loudness_gain(self.current_volume as f32, self.reference_level);
+            let loudness_gain = calc_loudness_gain(self.current_volume as f32, self.reference_level) as PrcFmt;
             // let high_boost = (loudness_gain * self.high_boost) as PrcFmt;
             // let low_boost = (loudness_gain * self.low_boost) as PrcFmt;
             self.active = loudness_gain > 0.001;
@@ -176,7 +176,7 @@ impl Filter for Loudness {
         {
             self.fader = conf.fader();
             let current_volume = self.processing_params.current_volume(self.fader);
-            let loudness_gain = calc_loudness_gain(current_volume, conf.reference_level);
+            let loudness_gain = calc_loudness_gain(current_volume, conf.reference_level) as PrcFmt;
             // let high_boost = (loudness_gain * conf.high_boost()) as PrcFmt;
             // let low_boost = (loudness_gain * conf.low_boost()) as PrcFmt;
             self.active = loudness_gain > 0.001;
