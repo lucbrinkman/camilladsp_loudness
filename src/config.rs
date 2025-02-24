@@ -1038,10 +1038,10 @@ pub enum LoudnessFader {
 #[serde(deny_unknown_fields)]
 pub struct LoudnessParameters {
     pub reference_level: f32,
-    #[serde(default)]
-    pub high_boost: Option<f32>,
-    #[serde(default)]
-    pub low_boost: Option<f32>,
+    // #[serde(default)]
+    // pub high_boost: Option<f32>,
+    // #[serde(default)]
+    // pub low_boost: Option<f32>,
     #[serde(default)]
     pub fader: Option<LoudnessFader>,
     #[serde(default)]
@@ -1049,13 +1049,13 @@ pub struct LoudnessParameters {
 }
 
 impl LoudnessParameters {
-    pub fn high_boost(&self) -> f32 {
-        self.high_boost.unwrap_or(10.0)
-    }
+    // pub fn high_boost(&self) -> f32 {
+    //     self.high_boost.unwrap_or(10.0)
+    // }
 
-    pub fn low_boost(&self) -> f32 {
-        self.low_boost.unwrap_or(10.0)
-    }
+    // pub fn low_boost(&self) -> f32 {
+    //     self.low_boost.unwrap_or(10.0)
+    // }
 
     pub fn fader(&self) -> usize {
         self.fader.unwrap_or(LoudnessFader::Main) as usize
