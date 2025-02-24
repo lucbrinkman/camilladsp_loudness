@@ -9,20 +9,21 @@ use crate::ProcessingParameters;
 use crate::Res;
 
 const LOW_SHELF_GAIN_FACTOR: f64 = 0.52;
+const LOUDNESS_EFFECT_STRENGTH: f64 = 1.0; // At 1.0, it compensated exactly for the Fletcher-Munson curves.
 
 pub struct Loudness {
     pub name: String,
     current_volume: PrcFmt,
     processing_params: Arc<ProcessingParameters>,
     reference_level: f32,
-    // high_boost: f32,
-    // low_boost: f32,
     high_biquad: biquad::Biquad,
     low_biquad: biquad::Biquad,
     fader: usize,
     active: bool,
     gain: Option<Gain>,
-    peaking_biquad: biquad::Biquad, // Add peaking filter
+    peaking_biquad_1: biquad::Biquad, // Rename to peaking_biquad_1
+    peaking_biquad_2: biquad::Biquad, // Add peaking_biquad_2
+    peaking_biquad_3: biquad::Biquad, // Add peaking_biquad_3
 }
 
 fn calc_loudness_gain(level: f32, reference: f32) -> f32 {
@@ -32,10 +33,10 @@ fn calc_loudness_gain(level: f32, reference: f32) -> f32 {
 
 impl Loudness {
     fn create_highshelf_conf(loudness_gain: PrcFmt) -> config::BiquadParameters {
-        config::BiquadParameters::Highshelf(config::ShelfSteepness::Slope {
-            freq: 3500.0,
-            slope: 12.0,
-            gain: 0.1 * loudness_gain,
+        config::BiquadParameters::Highshelf(config::ShelfSteepness::Q {
+            freq: 10620.0,
+            q: 1.38,
+            gain: 0.1456 * LOUDNESS_EFFECT_STRENGTH * loudness_gain,
         })
     }
 
@@ -43,15 +44,31 @@ impl Loudness {
         config::BiquadParameters::Lowshelf(config::ShelfSteepness::Slope {
             freq: 120.0,
             slope: 6.0,
-            gain: LOW_SHELF_GAIN_FACTOR * loudness_gain,
+            gain: LOW_SHELF_GAIN_FACTOR * LOUDNESS_EFFECT_STRENGTH * loudness_gain,
         })
     }
 
-    fn create_peaking_conf(loudness_gain: PrcFmt) -> config::BiquadParameters {
+    fn create_peaking_conf_1(loudness_gain: PrcFmt) -> config::BiquadParameters {
         config::BiquadParameters::Peaking(config::PeakingWidth::Q {
-            freq: 1000.0,
-            q: 2.0,
-            gain: 0.5 * loudness_gain,
+            freq: 2000.0,
+            q: 0.6,
+            gain: -0.0312 * LOUDNESS_EFFECT_STRENGTH * loudness_gain,
+        })
+    }
+
+    fn create_peaking_conf_2(loudness_gain: PrcFmt) -> config::BiquadParameters {
+        config::BiquadParameters::Peaking(config::PeakingWidth::Q {
+            freq: 4000.0,
+            q: 0.8,
+            gain: -0.01404 * LOUDNESS_EFFECT_STRENGTH * loudness_gain,
+        })
+    }
+
+    fn create_peaking_conf_3(loudness_gain: PrcFmt) -> config::BiquadParameters {
+        config::BiquadParameters::Peaking(config::PeakingWidth::Q {
+            freq: 8000.0,
+            q: 2.13,
+            gain: 0.0364 * LOUDNESS_EFFECT_STRENGTH * loudness_gain,
         })
     }
 
@@ -70,7 +87,9 @@ impl Loudness {
         // let low_boost = (loudness_gain * conf.low_boost()) as PrcFmt;
         let highshelf_conf = Loudness::create_highshelf_conf(loudness_gain);
         let lowshelf_conf = Loudness::create_lowshelf_conf(loudness_gain);
-        let peaking_conf = Loudness::create_peaking_conf(loudness_gain);
+        let peaking_conf_1 = Loudness::create_peaking_conf_1(loudness_gain);
+        let peaking_conf_2 = Loudness::create_peaking_conf_2(loudness_gain);
+        let peaking_conf_3 = Loudness::create_peaking_conf_3(loudness_gain);
         let gain = if conf.attenuate_mid() {
             let max_gain = LOW_SHELF_GAIN_FACTOR * loudness_gain;
             let gain_params = config::GainParameters {
@@ -87,10 +106,14 @@ impl Loudness {
         let high_biquad_coeffs =
             biquad::BiquadCoefficients::from_config(samplerate, highshelf_conf);
         let low_biquad_coeffs = biquad::BiquadCoefficients::from_config(samplerate, lowshelf_conf);
-        let peaking_biquad_coeffs = biquad::BiquadCoefficients::from_config(samplerate, peaking_conf);
+        let peaking_biquad_coeffs_1 = biquad::BiquadCoefficients::from_config(samplerate, peaking_conf_1);
+        let peaking_biquad_coeffs_2 = biquad::BiquadCoefficients::from_config(samplerate, peaking_conf_2);
+        let peaking_biquad_coeffs_3 = biquad::BiquadCoefficients::from_config(samplerate, peaking_conf_3);
         let high_biquad = biquad::Biquad::new("highshelf", samplerate, high_biquad_coeffs);
         let low_biquad = biquad::Biquad::new("lowshelf", samplerate, low_biquad_coeffs);
-        let peaking_biquad = biquad::Biquad::new("peaking", samplerate, peaking_biquad_coeffs);
+        let peaking_biquad_1 = biquad::Biquad::new("peaking_1", samplerate, peaking_biquad_coeffs_1);
+        let peaking_biquad_2 = biquad::Biquad::new("peaking_2", samplerate, peaking_biquad_coeffs_2);
+        let peaking_biquad_3 = biquad::Biquad::new("peaking_3", samplerate, peaking_biquad_coeffs_3);
 
         Loudness {
             name: name.to_string(),
@@ -100,7 +123,9 @@ impl Loudness {
             // low_boost: conf.low_boost(),
             high_biquad,
             low_biquad,
-            peaking_biquad, // Initialize peaking filter
+            peaking_biquad_1,
+            peaking_biquad_2,
+            peaking_biquad_3,
             processing_params,
             fader,
             active,
@@ -138,9 +163,19 @@ impl Filter for Loudness {
                 parameters: lowshelf_conf,
                 description: None,
             });
-            let peaking_conf = Loudness::create_peaking_conf(loudness_gain);
-            self.peaking_biquad.update_parameters(config::Filter::Biquad {
-                parameters: peaking_conf,
+            let peaking_conf_1 = Loudness::create_peaking_conf_1(loudness_gain);
+            self.peaking_biquad_1.update_parameters(config::Filter::Biquad {
+                parameters: peaking_conf_1,
+                description: None,
+            });
+            let peaking_conf_2 = Loudness::create_peaking_conf_2(loudness_gain);
+            self.peaking_biquad_2.update_parameters(config::Filter::Biquad {
+                parameters: peaking_conf_2,
+                description: None,
+            });
+            let peaking_conf_3 = Loudness::create_peaking_conf_3(loudness_gain);
+            self.peaking_biquad_3.update_parameters(config::Filter::Biquad {
+                parameters: peaking_conf_3,
                 description: None,
             });
             if let Some(gain) = &mut self.gain {
@@ -161,7 +196,9 @@ impl Filter for Loudness {
             trace!("Applying loudness biquads");
             self.high_biquad.process_waveform(waveform).unwrap();
             self.low_biquad.process_waveform(waveform).unwrap();
-            self.peaking_biquad.process_waveform(waveform).unwrap();
+            self.peaking_biquad_1.process_waveform(waveform).unwrap();
+            self.peaking_biquad_2.process_waveform(waveform).unwrap();
+            self.peaking_biquad_3.process_waveform(waveform).unwrap();
             if let Some(gain) = &mut self.gain {
                 gain.process_waveform(waveform).unwrap();
             }
@@ -190,9 +227,19 @@ impl Filter for Loudness {
                 parameters: lowshelf_conf,
                 description: None,
             });
-            let peaking_conf = Loudness::create_peaking_conf(loudness_gain);
-            self.peaking_biquad.update_parameters(config::Filter::Biquad {
-                parameters: peaking_conf,
+            let peaking_conf_1 = Loudness::create_peaking_conf_1(loudness_gain);
+            self.peaking_biquad_1.update_parameters(config::Filter::Biquad {
+                parameters: peaking_conf_1,
+                description: None,
+            });
+            let peaking_conf_2 = Loudness::create_peaking_conf_2(loudness_gain);
+            self.peaking_biquad_2.update_parameters(config::Filter::Biquad {
+                parameters: peaking_conf_2,
+                description: None,
+            });
+            let peaking_conf_3 = Loudness::create_peaking_conf_3(loudness_gain);
+            self.peaking_biquad_3.update_parameters(config::Filter::Biquad {
+                parameters: peaking_conf_3,
                 description: None,
             });
             if conf.attenuate_mid() {
